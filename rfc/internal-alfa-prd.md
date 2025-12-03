@@ -95,7 +95,7 @@ This is *not* an internal demo, nor is it a complete reflection of *all* current
 
 
 
-## 8. Success Criteria
+## 6. Success Criteria
 
 * 2 internal users can complete the core flow
 * Time-to-Tonk (TTT) ≤ 2 minutes
