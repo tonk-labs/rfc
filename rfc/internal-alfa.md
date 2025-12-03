@@ -5,7 +5,8 @@
 ### Onboarding
 
 - Alex goes to https://alpha.tonk.xyz (or a different URL)
-- Page loads with an empty "home" space
+  > `launcher.tonk.xyz` in the future, but `alpha` is fine for now
+- Page loads with an empty space called "Starter Space"
   > 1. Account keypair is generated and stored in non-extractable form.
   > 1. Account DID `did:key:zAlex` is derived from the public key. 
   > 1. Space keypair is generated
@@ -17,6 +18,12 @@
 - [history.pushState](https://developer.mozilla.org/en-US/docs/Web/API/History/pushState) updates URL to `https://alpha.tonk.xyz/did:key:zAlex/home` 
 - Alex drops memo.txt file that is added to a space
 
+### Open Memo
+
+- Alex opens memo as a Tinki (within the browser tab, for now)
+- Alex can edit his memo in Tinki
+- The changes are saved
+- Alex closes Tinki and returns to Starter Space
 
 ### Revisiting
 
@@ -27,19 +34,20 @@
 
 ### Personalization 
 
-- Alex activates personalization feature
+- Alex activates personalization feature 
+  > This is optional until Alex starts sharing a Space, see below.
 - System prompts for the name user wants to be called
 - Alex submits "Alex"
+  > Alex has the option to add a profile picture
 - System creates address book entry in the `did:key:zHome` space associating `@Alex ➔ did:key:zAlex`
 - System updates URL using [history.replaceState](https://developer.mozilla.org/en-US/docs/Web/API/History/replaceState) to `https://alpha.tonk.xyz/@Alex/home` reflecting name.
 
 ### Inviting Collaborator
 
-- Alex activates share function in the "home" space
-- System prompt Alex to enter invitees email address
+- Alex activates share function in the Starter Space
   - If Alex has not personalized yet it probably activates that to know who's inviting
-- Alex submits email address for Eileen
-- System produces invite URL  https://alpha.tonk.xyz/@Alex/home?join#glhAb...DK2YJQ==
+  - This would be the place to add a passkey!
+- System produces invite URL https://alpha.tonk.xyz/@Alex/home?join#glhAb...DK2YJQ==
   > Hash is base64 encoded invite that we used in tonk-cli
 - Alex shares invite URL with Eileen in a side channel
 
@@ -53,8 +61,9 @@
 - Delegation from membership _(derived from invite)_ to Eileen account is issued and stored in the Eileen's "personal" space
 - Space content is loaded utilizing delegations stored in Eileen's "personal" space.
 - Eileen sees Alex's memo.txt
-- Eileen adds re-memo.txt responding to memo.txt
-
+- Eileen tries to edit Alex's memo
+- System prompts Eileen to enter a Display name and add a passkey
+- Eileen can now edit the memo
 
 ## Considerations
 
@@ -66,4 +75,3 @@
 1. Setting up account recovery using passkey seems like a good idea, but not sure at which point in the flow we want to do it (maybe during personalization or inviting). We could probably defer it to a next sprint or treat as nice stretch goal.
 
 1. Address book mapping could be cut to reduce scope and be introduced in the future improvements.
-
