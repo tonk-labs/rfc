@@ -41,7 +41,7 @@ This is *not* an internal demo, nor is it a complete reflection of *all* current
 
 - Alex copies an invitation link to the Starter Space
   - If Alex has not yet added an account he will get prompted ("Create an account to share this Space")
-  - This would make him enter the previos "Create Account" flow
+  - This would make him enter the previous "Create Account" flow
 - Alex shares invite URL with Eileen in a side channel
 
 ### 2.6 Accepting Invite
