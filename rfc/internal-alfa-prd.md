@@ -73,6 +73,7 @@ This is *not* an internal demo, nor is it a complete reflection of *all* current
 * Synchronous edits: Users can see each other's presence and real-time edits
 * Share links expiry: Links expire after a number of uses
 * Account recovery: Prompt users to add an email account after three active hours of usage
+* Threat modelling: Permissions for downloads (individual tonks, a whole Space)
 
 ## 4. Technical Notes - please spec this out!
 
