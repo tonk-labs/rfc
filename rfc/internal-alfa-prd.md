@@ -11,9 +11,9 @@ This is *not* an internal demo, nor is it a complete reflection of *all* current
 
 ### 2.1 Onboarding
 
-- Alex goes to https://alpha.tonk.xyz which shows an empty space called "Starter Space"
+- Alex goes to `https://alpha.tonk.xyz` which shows an empty space called "Starter Space"
 - Alex has the option to rename the Starter Space
-- Alex drops memo.txt file that is added to a space
+- Alex drops `memo.txt` file that is added to a space
 
 ### 2.2 Open Memo
 
@@ -25,7 +25,7 @@ This is *not* an internal demo, nor is it a complete reflection of *all* current
 ### 2.3 Revisiting
 
 - Alex closes browser (without clearing cache)
-- Alex reopens same browser and goes to https://alpha.tonk.xyz
+- Alex reopens same browser and goes to `https://alpha.tonk.xyz`
 - Alex sees the last state of his Starter Space
 
 ### 2.4 Create Account 
@@ -56,7 +56,6 @@ This is *not* an internal demo, nor is it a complete reflection of *all* current
 - The changes are saved
 - Eileen closes the memo and returns to Starter Space, which now shows her display name and profile picture
 - Alex opens the memo again and sees Eileen's changes
-
 
 ## 3. Scope
 
@@ -96,10 +95,10 @@ This is *not* an internal demo, nor is it a complete reflection of *all* current
 1. Ephemeral account DID `did:key:zAlex` is derived from the public key. 
 1. Space keypair is generated
 1. Space delegates complete access to the account (powerline)
-1. Delegation is stored in the account "personal" space `did:key:zAlex`  _(hidden from the UI)_.
-1. Home space is added to the "personal" space address book associating `home ➔ did:key:zHome`
-1. Space keypair gets thrown away _(no owners could be added)_
-1. [history.pushState](https://developer.mozilla.org/en-US/docs/Web/API/History/pushState) updates URL to `https://alpha.tonk.xyz/home` 
+1. Delegation is stored in the account "personal" space `did:key:zAlex`  (hidden from the UI).
+1. "Starter Space" is added to the "personal" space address book associating `starter-space ➔ did:key:zStarterSpace`
+1. Space keypair gets thrown away (no owners could be added)
+1. [history.pushState](https://developer.mozilla.org/en-US/docs/Web/API/History/pushState) updates URL to `https://alpha.tonk.xyz/did:key:zStarterSpace/starter-space` 
 
 #### Create Account
 
@@ -112,53 +111,49 @@ This is *not* an internal demo, nor is it a complete reflection of *all* current
 1. Update spaces to delegate to new profile
 1. Clean up ephemeral data
 
+#### Personalization
+
+1. Alex activates personalization feature
+1. System prompts for the name user wants to be called
+1. Alex submits "Alex"
+1. System creates address book entry in the `did:key:zStarterSpace` space associating `@Alex ➔ did:key:zAlex`
+1. System prompts for profile picture
+1. Alex submits profile picture
+1. System stores image as bytes in Automerge doc in `did:key:zStarterSpace` space with content-addressed ID
+1. System updates address book entry in `did:key:zStarterSpace` space associating `did:key:zAlex ➔ CID`
+1. System updates URL using [history.replaceState](https://developer.mozilla.org/en-US/docs/Web/API/History/replaceState) to `https://alpha.tonk.xyz/did:key:zStarterSpace/starter-space` reflecting name.
+
 #### Revisiting
 
 1. Alex goes to https://alpha.tonk.xyz
 1. Attempt silent auth, otherwise prompt for passkey
 1. Re-derive Authority from PRF, verify DID matches
 1. Derive active profile and restore last active space
-1. Last active space `did:key:zHome` is selected
-1. [history.pushState](https://developer.mozilla.org/en-US/docs/Web/API/History/pushState) updates URL to `https://alpha.tonk.xyz/home`
+1. Last active space `did:key:zStarterSpace` is selected
+1. [history.pushState](https://developer.mozilla.org/en-US/docs/Web/API/History/pushState) updates URL to `https://alpha.tonk.xyz/did:key:zStarterSpace/starter-space`
 1. State restores to what it last was
-
-#### Personalization
-
-1. Alex activates personalization feature
-1. System prompts for the name user wants to be called
-1. Alex submits "Alex"
-1. System creates address book entry in the `did:key:zHome` space associating `@Alex ➔ did:key:zAlex`
-1. System updates URL using [history.replaceState](https://developer.mozilla.org/en-US/docs/Web/API/History/replaceState) to `https://alpha.tonk.xyz/home` reflecting name.
 
 #### Inviting Collaborator
 
-1. Alex activates share function in the "home" space
+1. Alex activates share function in the "Starter Space" space
 1. System checks if Alex has passkey, prompts for one if not
 1. System prompts Alex to enter invitee's email address
    > If Alex has not personalized yet it probably activates that to know who's inviting
 1. Alex submits email address for Eileen
-1. System produces invite URL  https://alpha.tonk.xyz/@Alex/home?join#glhAb...DK2YJQ==
+1. System produces invite URL  https://alpha.tonk.xyz/@Alex/starter-space?join#glhAb...DK2YJQ==
    > Hash is base64 encoded invite that we used in tonk-cli
 1. Alex shares invite URL with Eileen in a side channel
 
 #### Accepting Invite
 
 1. Eileen gets space invite link from Alex and navigates to it
-1. System performs account/home space bootstrap (if no account is found)
-1. Alex's account info added to Eileen address book in "personal" `did:key:zEileen` space
-1.associating `@Alex ➔ did:key:zAlex`
-1. Delegation from membership _(derived from invite)_ to Eileen account is issued and stored in the Eileen's "personal" space
+1. System performs account/starter space bootstrap (if no account is found)
+1. Alex's account info added to Eileen address book in "personal" `did:key:zEileen` space associating `@Alex ➔ did:key:zAlex`
+1. Delegation from membership (derived from invite) to Eileen account is issued and stored in the Eileen's "personal" space
 1. Space content is loaded using delegations stored in Eileen's "personal" space
-1. Eileen sees Alex's memo.txt
-1. Eileen attempts to edit memo.txt, system prompts for passkey to edit
-
-### Passkeys
-
-Before passkey, UI shows toast with "Your data is temporary until you create an account".
-
-When user clicks "Create Account" or tries to share:
-1. Generate passkey using WebAuthn
-1. Derive encryption 
+1. Eileen sees Alex's `memo.txt`
+1. Eileen attempts to edit `memo.txt`, system prompts for passkey to edit (see [Create Account](#create-account) flow)
+1. Eileen edits `memo.txt` and Alex sees update
 
 ## 5. Risks & Unknowns
 
@@ -166,7 +161,7 @@ When user clicks "Create Account" or tries to share:
 
 - UI needs to flag that data storage is ephemeral until account creation
 - Unclear if account creation prompt should come from Tinki or Launcher, related to [RFC Tabs]().
-- Unclear if there should be a special Home space, related to [RFC Spaces](https://www.notion.so/tonk/RFC-Spaces-2b719ce5e10b800783a5d9f5adb2d8ed?source=copy_link)
+- Unclear if there should be a special Starter Space, related to [RFC Spaces](https://www.notion.so/tonk/RFC-Spaces-2b719ce5e10b800783a5d9f5adb2d8ed?source=copy_link)
 
 ## 6. Success Criteria
 
