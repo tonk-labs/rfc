@@ -469,3 +469,120 @@ carry assert concept with=io.gozala.person/name,io.gozala.person/age,io.gozala.p
 ```
 
 `?this` binds to the entity being asserted in the current `+` segment. `?this,io.gozala.person/name` computes `hash(concept_entity, attribute_entity)` as the target for the field bookmark. Field-level bookmarks are optional and only needed when the default name segment is not sufficient.
+
+---
+
+## Appendix: Assert/Query Notation
+
+The notation used by `carry query` output and `carry assert -` input is the same format. This makes `carry query | carry assert -` a valid round-trip — query output can be piped directly back as assert input.
+
+### Three-level structure
+
+Every entry in the format follows a consistent three-level structure:
+
+**Level 1 — identifier**
+
+The top-level key identifies the entity being described. It is either global or local:
+
+- **Global** (contains `:`): a DID or other URI — `did:key:zAlice`, `did:key:zSpace`
+- **Local** (no `:`): a bookmark name — `quantity`, `ingredient`, `person`
+
+**Level 2 — conceptual domain**
+
+The second-level key describes the domain or concept the fields beneath it belong to. Again either global or local:
+
+- **Global** (contains `.`): a reverse domain name — `io.gozala.person`, `diy.cook`, `claims.dialog.attribute`
+- **Local** (no `.`): a pre-registered concept name — `concept`, `attribute`, `rule`, `bookmark`
+
+**Level 3 — named values**
+
+The third level contains field names and their values:
+
+- **Scalar value**: a direct association — `name: Alice`, `as: Text`
+- **Non-scalar value**: a nested entity. Identity and shape are context-dependent:
+  - Under a **domain context**: identity is derived deterministically from the parent entity and field name. Fields beneath inherit the domain derived from the field name — e.g. `address:` under `io.gozala.person` implies a nested entity under `io.gozala.address`
+  - Under a **concept context**: the nested entity must conform to whatever concept the parent has mapped for that field
+
+### Examples
+
+**Data assertion** — global entity, global domain:
+
+```yaml
+did:key:zAlice:
+  io.gozala.person:
+    name: Alice
+    age: 28
+```
+
+**Attribute definition** — local name, local concept domain:
+
+```yaml
+quantity:
+  attribute:
+    description: Amount needed
+    the: diy.cook/quantity
+    as: UnsignedInteger
+    cardinality: one
+```
+
+The `attribute` concept is pre-registered in carry with the following definition:
+
+```yaml
+attribute:
+  concept:
+    with:
+      description:
+        the: dialog.attribute/description
+        as: Text
+        cardinality: one
+      the:
+        the: dialog.attribute/id
+        as: Symbol
+        cardinality: one
+      as:
+        the: dialog.attribute/type
+        as: Symbol
+        cardinality: one
+      cardinality:
+        the: dialog.attribute/cardinality
+        as: [one, many]
+        cardinality: one
+```
+
+The entity hash is derived from the identity fields `(the, as, cardinality)`. The `description` is non-identity metadata. The local name `quantity` becomes a bookmark on that hash.
+
+**Concept definition** — local name, local concept domain:
+
+```yaml
+ingredient:
+  concept:
+    description: An ingredient
+    with:
+      - diy.cook/quantity
+      - diy.cook/ingredient-name
+```
+
+The concept entity is a content hash of the sorted set of constituent attribute hashes. The local name `ingredient` becomes a bookmark on that hash.
+
+**Nested entity** — non-scalar value under a domain context:
+
+```yaml
+did:key:zAlice:
+  io.gozala.person:
+    name: Alice
+    address:
+      city: San Francisco
+      zip: 94107
+```
+
+`address` is non-scalar so it implies a nested entity. Its identity is derived from `did:key:zAlice` and the field name `address`. Its fields are interpreted under the domain `io.gozala.address`, producing claims `io.gozala.address/city` and `io.gozala.address/zip`.
+
+### Round-trip
+
+Because query output follows the same three-level structure, the following is valid:
+
+```
+carry query person name="Alice" | carry assert -
+```
+
+Query output for data uses global DIDs at level 1 and global domains at level 2. Definitions queried via `carry query attribute` or `carry query concept` return the same shape and can be piped back in unchanged or edited in between.
