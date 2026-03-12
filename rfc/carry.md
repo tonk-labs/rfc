@@ -17,26 +17,268 @@ The preferred output format can also be persisted as a claim in the space. Comma
 
 ---
 
-## Seed
+## Asserted Notation
+
+Asserted notation is the canonical YAML format carry uses for command output and file-based input. It represents both data claims and schema definitions as a hierarchy of entity → context → fields, and expands unambiguously to a set of raw claims. Because `carry query` output and `carry assert -` input share the same format, query output can be piped directly back as assert input without transformation.
+
+### Three-level structure
+
+Every entry in asserted notation follows a consistent three-level hierarchy:
 
 ```
-carry seed [<name>] [--site <SITE>]
+<entity-identifier>:
+  <context>:
+    <field>: <value>
+    <field>: <value>
+```
+
+#### Level 1: Entity identifier
+
+The outermost key identifies the entity being described.
+
+| Form | Meaning | Example |
+|---|---|---|
+| Contains `:` | Global identifier (a DID or URI) | `did:key:zAlice` |
+| No `:` | Local bookmark name | `quantity`, `person` |
+
+#### Level 2: Context
+
+The second key declares how the fields beneath it should be interpreted.
+
+| Form | Meaning | Example |
+|---|---|---|
+| Contains `.` | Domain context; fields expand to `domain/field` relation identifiers | `io.gozala.person` |
+| No `.` | Concept context; fields are named attributes of that concept | `attribute`, `concept`, `bookmark` |
+
+The concept names `attribute`, `concept`, `rule`, and `bookmark` are pre-registered. User-defined concept names may appear here once bookmarked.
+
+> ⚠️ Domains starting with `dialog.` are reserved for Dialog DB internals. User-defined domains must not use this prefix.
+
+#### Level 3: Fields
+
+Named values within the context.
+
+- **Scalar value**: a direct association: `name: Alice`, `age: 28`, `as: Text`
+- **Non-scalar value** (a nested YAML map): implies a nested entity; see [Nested Entities](#nested-entities) below
+
+### Domain context: data assertions
+
+Under a domain context each field at level 3 expands to a claim `(the: domain/field, of: entity, is: value)`.
+
+```yaml
+did:key:zAlice:
+  io.gozala.person:
+    name: Alice
+    age: 28
+```
+
+Expands to:
+
+```yaml
+- the: io.gozala.person/name
+  of:  did:key:zAlice
+  is:  Alice
+
+- the: io.gozala.person/age
+  of:  did:key:zAlice
+  is:  28
+```
+
+Multiple top-level entries in a single document are expanded independently and submitted together as one transaction.
+
+### Anonymous entities
+
+`_` as the level-1 key means "a fresh entity; identity irrelevant to this document." Use when you need to assert claims without caring what the entity's identifier is:
+
+```yaml
+_:
+  diy.cook:
+    quantity:    2
+    ingredient:  carrot
+```
+
+For cases where the same anonymous entity must be referenced in multiple places within one document, use a named variable `?foo`. All occurrences of `?foo` in the same document bind to the same generated entity. `_` is always a distinct fresh entity. `?foo` unifies.
+
+### Concept context: schema definitions
+
+Under a concept context the pre-registered concept schema determines how fields are interpreted and how the entity identity is computed.
+
+#### `attribute`
+
+Two attributes with the same relation identifier but different type or cardinality are distinct entities.
+
+```yaml
+quantity:
+  attribute:
+    description: Amount needed
+    the:         diy.cook/quantity
+    as:          UnsignedInteger
+    cardinality: one
+```
+
+The local name `quantity` at level 1 creates a `dialog.meta/name` claim on the attribute entity.
+
+#### `concept`
+
+A concept's identity is derived from its `dialog.concept.with/*` claims: the set of `(field_name, attribute_entity)` pairs. Field names participate in identity: a concept with a field named `name` pointing at attribute `A` is distinct from one with a field named `fullname` pointing at the same `A`.
+
+Concept definitions reference named attribute entities under `with`. Attributes can be defined separately and referenced by bookmark, or defined inline:
+
+**Separate attribute definitions:**
+
+```yaml
+person-name:
+  attribute:
+    description: The person's name
+    the:         io.gozala.person/name
+    as:          Text
+    cardinality: one
+
+person-age:
+  attribute:
+    description: The person's age
+    the:         io.gozala.person/age
+    as:          UnsignedInteger
+    cardinality: one
+
+person:
+  concept:
+    description: A person
+    with:
+      name: person-name
+      age:  person-age
+```
+
+**Inline attribute definitions:**
+
+```yaml
+person:
+  concept:
+    description: A person
+    with:
+      name:
+        description: The person's name
+        the:         io.gozala.person/name
+        as:          Text
+        cardinality: one
+      age:
+        description: The person's age
+        the:         io.gozala.person/age
+        as:          UnsignedInteger
+        cardinality: one
+```
+
+Both produce the same claims:
+
+```yaml
+- the: dialog.concept.with/name
+  of:  <person>
+  is:  <person-name>
+
+- the: dialog.concept.with/age
+  of:  <person>
+  is:  <person-age>
+
+- the: dialog.meta/description
+  of:  <person>
+  is:  A person
+
+- the: dialog.meta/name
+  of:  <person>
+  is:  person
+```
+
+Optional fields declared under `maybe` produce `dialog.concept.maybe/{name}` claims. An entity still matches the concept if all `with` fields are satisfied regardless of which `maybe` fields are present.
+
+#### `bookmark`
+
+A bookmark maps a local name to any entity. The `name` field is stored; `this` is provided at the command level to identify which entity receives the name.
+
+```
+carry assert bookmark this=did:key:zSomeEntity name=color
+```
+
+Produces:
+
+```yaml
+- the: dialog.meta/name
+  of:  did:key:zSomeEntity
+  is:  color
+```
+
+Names are shared across all members of a space and travel with synced data.
+
+### Nested entities
+
+A non-scalar value at level 3 under a **domain context** implies a nested entity. The nested entity's identity is derived deterministically from its parent entity and the field's relation identifier. The nested entity's domain is the parent domain with the field name appended as a segment, e.g. `address` under `io.gozala.person` produces `io.gozala.address`.
+
+```yaml
+did:key:zAlice:
+  io.gozala.person:
+    name: Alice
+    address:
+      city: San Francisco
+      zip:  94107
+```
+
+Expands to:
+
+```yaml
+- the: io.gozala.person/name
+  of:  did:key:zAlice
+  is:  Alice
+
+- the: io.gozala.person/address
+  of:  did:key:zAlice
+  is:  <address-entity>
+
+- the: io.gozala.address/city
+  of:  <address-entity>
+  is:  San Francisco
+
+- the: io.gozala.address/zip
+  of:  <address-entity>
+  is:  94107
+```
+
+Nesting can be recursive; each level applies the same rule.
+
+### Entity identity for new data assertions
+
+When a command creates a new data entity without an explicit `this`, the runtime generates a fresh entity DID. This DID is included in command output so it can be referenced in subsequent assertions.
+
+### Round-trip property
+
+Because `carry query` output is asserted notation and `carry assert -` accepts asserted notation, the following is always valid:
+
+```
+carry query person name="Alice" | carry assert -
+```
+
+Output for definitions queried via `carry query attribute` or `carry query concept` uses the same three-level structure and can be piped back unchanged or edited in between.
+
+---
+
+## Init
+
+```
+carry init [<n>] [--site <SITE>]
 ```
 
 `--site` defaults to `$PWD`. Creates a new Dialog DB repository at `$SITE/.carry/did:key:zSpace`.
 
 **If a repository already exists at that location:**
 
-If `<name>` is provided, asserts it as the space label and prints:
+If `<n>` is provided, asserts it as the space label and prints:
 
 ```
-Seeded <name> repository in /path/to/.carry/did:key:zSpace
+Initialized <n> repository in /path/to/.carry/did:key:zSpace
 ```
 
 Otherwise prints:
 
 ```
-Seeded repository in /path/to/.carry/did:key:zSpace
+Initialized repository in /path/to/.carry/did:key:zSpace
 ```
 
 **If no repository exists:**
@@ -44,17 +286,17 @@ Seeded repository in /path/to/.carry/did:key:zSpace
 1. Generates an Ed25519 keypair
 2. Creates the directory `$SITE/.carry/did:key:zSpace` where `did:key:zSpace` is derived from the public key
 3. Saves the private key to `$SITE/.carry/did:key:zSpace/credentials`
-4. If `<name>` is provided, asserts it as the space label:
+4. If `<n>` is provided, asserts it as the space label:
 
 ```yaml
-the: xyz.tonk.carry/label
-of: hash("space")
-is: <name>
+did:key:zSpace:
+  xyz.tonk.carry:
+    label: <n>
 ```
 
 5. Prints the same message as above
 
-Running `carry seed` inside a directory that is already within an existing repository creates a nested repository. carry does not detect or warn about nesting.
+Running `carry init` inside a directory that is already within an existing repository creates a nested repository. carry does not detect or warn about nesting.
 
 ---
 
@@ -72,16 +314,16 @@ Generates an invite URL granting a member access to the space. Prints the URL to
 
 1. If `<member>` is not provided, generate a fresh Ed25519 keypair and use its public key as the member DID
 2. Create a UCAN delegation from the repository keypair to the member DID
-3. Assert the invitation as claims:
+3. Assert the invitation:
 
 ```yaml
-the: xyz.tonk.carry/invite
-of: <member-did>
-is: <ucan-cid>
+<member-did>:
+  xyz.tonk.carry:
+    invite: <ucan-cid>
 
-the: xyz.tonk.carry/ucan
-of: <ucan-cid>
-is: <serialized-ucan-bytes>
+<ucan-cid>:
+  xyz.tonk.carry:
+    ucan: <serialized-ucan-bytes>
 ```
 
 4. Output the invite URL:
@@ -155,72 +397,70 @@ No upstream configured. Run `carry join` first.
 carry query <TARGET> [FIELD[=VALUE] ...] [--site <SITE>] [--format <FMT>]
 ```
 
+Output is in asserted notation.
+
 The `<TARGET>` determines the kind of query:
 
-- **Contains `.`**: domain query. Open-ended: specify any field names within the domain and carry will search for entities that have matching claims. You decide what to look for.
-- **No `.`**: concept query. The concept defines the fields: you get all of them without having to list them. Only specify fields when you want to filter.
+- **Contains `.`**: domain query. Searches for entities that have claims within the given domain matching any specified fields.
+- **No `.`**: concept query. Resolves the named concept via local bookmark; returns all fields the concept defines.
 
-Fields without a value (e.g. `age`) are shorthand for `age=?`: include the field in output without filtering. Fields with a value (e.g. `name="Alice"`) filter results to matching entities. Output contains exactly the fields requested, nothing more.
+Fields without a value (e.g., `age`) are output fields: included in results without filtering. Fields with a value (e.g., `name="Alice"`) are filter fields: only entities matching that value are returned. Output contains exactly the fields requested, nothing more.
 
----
+### Domain query
 
-### Domain
-
-An open-ended query over a domain. Searches for any entities that have claims within the given domain matching the fields specified. Not constrained to a predefined set of fields.
+Searches for entities with claims within the specified domain. You choose which fields to request.
 
 ```
 carry query io.gozala.person name="Alice" age address
 ```
 
-Translates to: find entities where `the=io.gozala.person/name is="Alice"`, returning `io.gozala.person/age` and `io.gozala.person/address`.
+`name="Alice"` filters results. `age` and `address` are included in output.
 
 Output:
 
 ```yaml
 did:key:zAlice:
   io.gozala.person:
-    name: Alice
-    age: 28
+    name:    Alice
+    age:     28
     address: San Francisco
+
 did:key:zAli:
   io.gozala.person:
-    name: Alice
-    age: 42
+    name:    Alice
+    age:     42
     address: Paris
 ```
 
----
+### Concept query
 
-### Concept
-
-Resolves the named concept via local bookmark and matches entities against it. All fields the concept defines are returned. Specify fields only when filtering.
+Resolves the named concept via local bookmark, matches entities against it, and returns all of the concept's fields. Specify fields only when filtering.
 
 ```
 carry query person name="Alice"
 ```
 
-Resolves the bookmark `person` to a concept, matches all entities satisfying the concept's required attributes, and filters to those where `name` is `"Alice"`.
-
 Output:
 
 ```yaml
 did:key:zAlice:
   person:
-    name: Alice
-    age: 28
+    name:    Alice
+    age:     28
     address: San Francisco
+
 did:key:zAli:
   person:
-    name: Alice
-    age: 42
+    name:    Alice
+    age:     42
     address: Paris
 ```
 
----
+The level-2 key is the concept's local bookmark name. This makes the output readable and round-trippable: piping it back into `carry assert -` reasserts the data via the same concept context.
 
 ### Composition
 
-`+` combines two query segments in the same command. By default both segments join on the same entity. Results are inlined under the same entity key.
+`+` combines two query segments. By default both segments join on the same entity; results are merged under the same level-1 key.
 
 ```
 carry query io.gozala.person name="Alice" + io.gozala.user email
@@ -246,11 +486,11 @@ carry assert <TARGET>|<FILE>|- [this=<ENTITY>] [FIELD=VALUE ...] [--site <SITE>]
 
 Asserts claims. `<TARGET>` follows the same domain vs. concept resolution as `query`.
 
-Without `this`: a new entity is derived from the provided fields by the Dialog DB runtime.
+Without `this`: a new entity DID is generated by the runtime. The generated DID is printed to stdout so it can be referenced in subsequent commands.
 
-With `this`: updates the specified entity. At least one field required.
+With `this`: targets the specified entity. At least one field is required.
 
-`?this` refers to the entity being asserted in the current segment and can be used to join across `+` segments in the same command.
+`?this` refers to the entity being asserted in the current `+` segment and can be used to join across segments in the same command.
 
 Examples:
 
@@ -265,10 +505,12 @@ carry assert io.gozala.person name=Alice age=28
 ## Retract
 
 ```
-carry retract <TARGET>|<FILE>|- [this=<ENTITY>] [FIELD=VALUE ...] [--site <SITE>]
+carry retract <TARGET>|<FILE>|- [this=<ENTITY>] [FIELD[=VALUE] ...] [--site <SITE>]
 ```
 
-Retracts claims. Same syntax as `assert`. Each listed field retracts the corresponding claim from the entity.
+Retracts claims. Same syntax as `assert`.
+
+When a field is specified without a value, the current claim for that attribute is retracted regardless of value. When a field is specified with a value (e.g., `tag=urgent`), only the claim matching that exact value is retracted; useful for `cardinality: many` attributes.
 
 Example:
 
@@ -280,44 +522,18 @@ Retracts only the `age` claim. Other claims on the entity are unaffected.
 
 ---
 
-## Model
-
-```
-carry model [<scope>] [--site <SITE>]
-```
-
-Opens the default editor with existing definitions rendered in abbreviated YAML notation as per the [Dialog notation spec](https://github.com/dialog-db/dialog-db/blob/main/notes/notation.md). When the editor is closed carry computes a diff against the original and asserts any changes.
-
-`<scope>` determines what is loaded into the editor:
-
-- **Omitted**: all concepts defined in the space
-- **No `.`**: the named concept and its constituent attributes
-- **Contains `.`**: all attributes defined in that domain
-
-**Editor resolution** follows the same order as git: `$CARRY_EDITOR`, then `$VISUAL`, then `$EDITOR`, then falls back to `vi`.
-
-**On close:**
-
-- Added definitions are asserted
-- Removed definitions are retracted
-- Changed definitions are asserted in their new form. Since attribute and concept identity is structural, a changed definition produces a new entity — the old one is not explicitly retracted but simply stops being referenced
-
-**New definitions** added in the editor are treated the same as edits and asserted on close.
-
----
-
 ## Domain Modeling
 
 `attribute` and `concept` are pre-registered concepts in `carry`. They can be asserted and queried like any other concept.
 
-Asserting an attribute:
+Asserting an attribute via command line:
 
 ```
-carry assert attribute the=io.gozala.person/name as=Text
-carry assert attribute the=diy.cook/quantity as=UnsignedInteger description="Quantity as a whole number"
+carry assert attribute the=io.gozala.person/name as=Text cardinality=one description="Name of the person"
+carry assert attribute the=diy.cook/quantity as=UnsignedInteger cardinality=one description="Quantity as a whole number"
 ```
 
-For non-trivial definitions pass a file or pipe via stdin. YAML is the canonical format; JSON is also accepted and detected automatically:
+For non-trivial definitions pass a file or pipe via stdin:
 
 ```
 carry assert domain.yaml          # from file
@@ -331,19 +547,19 @@ See the appendix for how attributes, concepts, and bookmarks compose at the clai
 
 ## File and Stdin
 
-`assert` and `retract` accept a file path or `-` for stdin. YAML is the canonical format; JSON is also accepted and detected automatically.
+`assert` and `retract` accept a file path or `-` for stdin.
+
+> ℹ️ Using `-` to mean stdin is a Unix convention followed by tools like `cat`, `curl`, `jq`, and `diff`. It signals "read from standard input rather than a file." See [POSIX utility conventions](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap12.html) and the [GNU Coding Standards](https://www.gnu.org/prep/standards/html_node/Command_002dLine-Interfaces.html) for background.
 
 ```
-carry assert data.yaml            # from file
-carry assert -                    # from stdin
-cat data.yaml | carry assert -    # same
+carry assert data.yaml
+carry assert -
+cat data.yaml | carry assert -
 carry retract data.yaml
 carry retract -
 ```
 
 ### Disambiguating file from target
-
-When the first argument to `assert` or `retract` could be either a `<TARGET>` or a file path, carry resolves it as follows:
 
 - If the argument is `-` it is stdin
 - If the argument contains `/` or ends in `.yaml`, `.yml`, or `.json` it is treated as a file path
@@ -351,17 +567,26 @@ When the first argument to `assert` or `retract` could be either a `<TARGET>` or
 
 ### Supported formats
 
-Three formats are accepted, all of which expand to the same claims before asserting:
+Asserted YAML is the canonical format. JSON is also supported as an exact structural equivalent — the same three-level entity-first hierarchy, expressed in JSON syntax. The two representations are interchangeable.
 
-- **Abbreviated YAML** — the shorthand notation described in the [Dialog notation spec](https://github.com/dialog-db/dialog-db/blob/main/notes/notation.md). Recommended for human authoring.
-- **Formal YAML** — the explicit full form from the same spec.
-- **Formal JSON** — the JSON equivalent of the formal notation.
+The person example in JSON:
+
+```json
+{
+  "did:key:zAlice": {
+    "io.gozala.person": {
+      "name": "Alice",
+      "age": 28
+    }
+  }
+}
+```
 
 ### Format detection
 
-For files, format is inferred from the file extension: `.yaml` or `.yml` for YAML, `.json` for JSON.
+For files, format is inferred from the extension: `.yaml` or `.yml` for YAML, `.json` for JSON.
 
-For stdin (`-`), carry peeks at the first non-whitespace character: `{` indicates JSON, anything else is treated as YAML. Both abbreviated and formal YAML are accepted — carry distinguishes them by whether the content matches the formal schema.
+For stdin (`-`), carry peeks at the first non-whitespace character: `{` or `[` indicates JSON, anything else is treated as YAML.
 
 ---
 
@@ -391,7 +616,7 @@ When supported, they might look like:
 carry query io.gozala.person this=?a name="Alice" + io.gozala.org this=?b owner=?a
 ```
 
-Where `?a` and `?b` are distinct entities, joined on `owner=?a`. Output would show both entities inlined per result:
+Where `?a` and `?b` are distinct entity variables, joined on `owner=?a`. Output would show both entities inlined per result:
 
 ```yaml
 did:key:zAlice:
@@ -406,183 +631,153 @@ did:key:zAcmeCorp:
 
 ## Appendix: Concepts, Attributes, and Bookmarks at the Claim Level
 
-This section describes how carry represents domain modeling constructs as claims. It is not required reading for using the CLI but explains how the pieces fit together.
+This section documents how carry represents schema constructs as raw claims. Understanding it is not required for using the CLI, but is necessary for implementing the assert/retract/query pipeline.
 
-### Attribute identity
+### Primitive domains
 
-An attribute's entity is a content hash of its selector, cardinality, and type:
+The following domains are primitive; their semantics are defined by the runtime, not by concept definitions stored as claims. All user-defined concepts and attributes build on top of these.
 
-```
-entity = hash(the, cardinality, as)
-```
+> ⚠️ All domains starting with `dialog.` are reserved. The runtime may reject assertions that use reserved domains outside of the contexts defined here.
 
-Two attributes with the same selector but different cardinality or type are distinct entities.
+| Domain | Purpose |
+|---|---|
+| `dialog.attribute` | Stores attribute identity fields |
+| `dialog.concept.with` | Stores required concept membership by field name |
+| `dialog.concept.maybe` | Stores optional concept membership by field name |
+| `dialog.meta` | Universal metadata: names and descriptions for any entity |
 
-### Concept identity
+### Attribute claims
 
-A concept is a set of attributes. Its entity is a content hash of the sorted set of constituent attribute hashes. Field names are not part of the concept's identity: two concepts with the same attributes but different names are the same concept.
+Two attributes with the same relation identifier but different type or cardinality are distinct entities. The `description` field is required in the notation but does not affect identity.
 
-Membership is recorded as individual claims, one per attribute:
-
-```yaml
-the: claims.dialog.concept/with
-of: concept_entity
-is: attribute_entity
-```
-
-Optional attributes use a separate relation:
+Claims for the `quantity` attribute:
 
 ```yaml
-the: claims.dialog.concept/maybe
-of: concept_entity
-is: attribute_entity
+- the: dialog.attribute/id
+  of:  <quantity>
+  is:  diy.cook/quantity
+
+- the: dialog.attribute/type
+  of:  <quantity>
+  is:  UnsignedInteger
+
+- the: dialog.attribute/cardinality
+  of:  <quantity>
+  is:  one
+
+- the: dialog.meta/description
+  of:  <quantity>
+  is:  Amount needed
+
+- the: dialog.meta/name
+  of:  <quantity>
+  is:  quantity
 ```
 
-### Bookmarks
+### Concept claims
 
-`bookmark` is carry's naming mechanism. It maps a local name to any entity via `xyz.tonk.carry/label`. Bookmarks are local metadata: they do not affect structural identity and do not travel with concepts on sync.
+A concept's identity is derived from its complete set of `dialog.concept.with/{name}` claims. Both the field names and the attribute entities they point at participate. Two concepts with identical constituent attributes but different field names are distinct concepts.
 
-```
-carry query bookmark              # list all named entities
-carry query bookmark name=person  # resolve the name person
-carry assert bookmark name=person this=<entity>
-```
-
-Field-level bookmarks name individual attribute slots within a concept. The target entity is the content hash of the concept-attribute pair:
+Claims for the `person` concept with fields `name` and `age`:
 
 ```yaml
-the: xyz.tonk.carry/label
-of: hash(concept_entity, attribute_entity)
-is: name
+- the: dialog.concept.with/name
+  of:  <person>
+  is:  <person-name>
+
+- the: dialog.concept.with/age
+  of:  <person>
+  is:  <person-age>
+
+- the: dialog.meta/description
+  of:  <person>
+  is:  A person
+
+- the: dialog.meta/name
+  of:  <person>
+  is:  person
 ```
 
-When no field bookmark exists the field name falls back to the name segment of the attribute selector. For example `io.gozala.person/name` defaults to `name`. Field bookmarks are only needed when the default is insufficient or when the same name segment appears under multiple domains in the same concept.
+Optional fields produce `dialog.concept.maybe/{name}` claims. These do not participate in concept identity. An entity satisfies the concept if all `with` fields are present, regardless of which `maybe` fields are present.
 
-Asserting a concept and naming it in one command using `+` and `?this`:
+### Pre-registered concept schemas
 
-```
-carry assert concept with=io.gozala.person/name,io.gozala.person/age,io.gozala.person/address
-  + bookmark name=person
-  + bookmark this=?this,io.gozala.person/name name=name
-  + bookmark this=?this,io.gozala.person/age name=age
-  + bookmark this=?this,io.gozala.person/address name=address
-```
+The builtin concepts are self-describing, expressible in the same notation they are used to define. They are hardcoded in the runtime.
 
-`?this` binds to the entity being asserted in the current `+` segment. `?this,io.gozala.person/name` computes `hash(concept_entity, attribute_entity)` as the target for the field bookmark. Field-level bookmarks are optional and only needed when the default name segment is not sufficient.
-
----
-
-## Appendix: Assert/Query Notation
-
-The notation used by `carry query` output and `carry assert -` input is the same format. This makes `carry query | carry assert -` a valid round-trip — query output can be piped directly back as assert input.
-
-### Three-level structure
-
-Every entry in the format follows a consistent three-level structure:
-
-**Level 1 — identifier**
-
-The top-level key identifies the entity being described. It is either global or local:
-
-- **Global** (contains `:`): a DID or other URI — `did:key:zAlice`, `did:key:zSpace`
-- **Local** (no `:`): a bookmark name — `quantity`, `ingredient`, `person`
-
-**Level 2 — conceptual domain**
-
-The second-level key describes the domain or concept the fields beneath it belong to. Again either global or local:
-
-- **Global** (contains `.`): a reverse domain name — `io.gozala.person`, `diy.cook`, `claims.dialog.attribute`
-- **Local** (no `.`): a pre-registered concept name — `concept`, `attribute`, `rule`, `bookmark`
-
-**Level 3 — named values**
-
-The third level contains field names and their values:
-
-- **Scalar value**: a direct association — `name: Alice`, `as: Text`
-- **Non-scalar value**: a nested entity. Identity and shape are context-dependent:
-  - Under a **domain context**: identity is derived deterministically from the parent entity and field name. Fields beneath inherit the domain derived from the field name — e.g. `address:` under `io.gozala.person` implies a nested entity under `io.gozala.address`
-  - Under a **concept context**: the nested entity must conform to whatever concept the parent has mapped for that field
-
-### Examples
-
-**Data assertion** — global entity, global domain:
-
-```yaml
-did:key:zAlice:
-  io.gozala.person:
-    name: Alice
-    age: 28
-```
-
-**Attribute definition** — local name, local concept domain:
-
-```yaml
-quantity:
-  attribute:
-    description: Amount needed
-    the: diy.cook/quantity
-    as: UnsignedInteger
-    cardinality: one
-```
-
-The `attribute` concept is pre-registered in carry with the following definition:
+#### `attribute`
 
 ```yaml
 attribute:
   concept:
+    description: Built-in concept for modeling attributes
     with:
       description:
-        the: dialog.attribute/description
-        as: Text
+        description: Human-readable description, required to aid comprehension
+        the:         dialog.meta/description
+        as:          Text
         cardinality: one
       the:
-        the: dialog.attribute/id
-        as: Symbol
+        description: Nominal identifier capturing semantic intent of the relation
+        the:         dialog.attribute/id
+        as:          Symbol
         cardinality: one
       as:
-        the: dialog.attribute/type
-        as: Symbol
+        description: Value type of the attribute
+        the:         dialog.attribute/type
+        as:          [Text, Boolean, SignedInteger, UnsignedInteger, Float, Symbol, Bytes, Entity]
         cardinality: one
       cardinality:
-        the: dialog.attribute/cardinality
-        as: [one, many]
+        description: Cardinality of this relation
+        the:         dialog.attribute/cardinality
+        as:          [one, many]
         cardinality: one
 ```
 
-The entity hash is derived from the identity fields `(the, as, cardinality)`. The `description` is non-identity metadata. The local name `quantity` becomes a bookmark on that hash.
+The `as` and `cardinality` fields use enumerated symbol types; the value must be one of the listed symbols.
 
-**Concept definition** — local name, local concept domain:
+#### `concept`
 
 ```yaml
-ingredient:
+concept:
   concept:
-    description: An ingredient
+    description: Built-in concept for composing attributes into a shape
     with:
-      - diy.cook/quantity
-      - diy.cook/ingredient-name
+      description:
+        description: Human-readable description of what this concept models
+        the:         dialog.meta/description
+        as:          Text
+        cardinality: one
+      with:
+        ?name:
+          description: A required attribute, keyed by its field name in this concept
+          the:         dialog.concept.with/?name
+          as:          attribute
+          cardinality: one
+    maybe:
+      maybe:
+        ?name:
+          description: An optional attribute, keyed by its field name in this concept
+          the:         dialog.concept.maybe/?name
+          as:          attribute
+          cardinality: one
 ```
 
-The concept entity is a content hash of the sorted set of constituent attribute hashes. The local name `ingredient` becomes a bookmark on that hash.
+`?name` as a key signals a variable name segment; the key used in the document becomes the name segment in the relation identifier. A `?name` key may not appear alongside literal keys in the same block.
 
-**Nested entity** — non-scalar value under a domain context:
+A `with` dictionary is non-empty by definition: if no entries are present the entity does not match the concept. A `maybe` dictionary may be absent entirely, which is why `maybe` itself lives under `maybe`.
+
+#### `bookmark`
 
 ```yaml
-did:key:zAlice:
-  io.gozala.person:
-    name: Alice
-    address:
-      city: San Francisco
-      zip: 94107
+bookmark:
+  concept:
+    description: Naming mechanism mapping a local name to any entity
+    with:
+      name:
+        description: The name assigned to the target entity in this space
+        the:         dialog.meta/name
+        as:          Text
+        cardinality: one
 ```
 
-`address` is non-scalar so it implies a nested entity. Its identity is derived from `did:key:zAlice` and the field name `address`. Its fields are interpreted under the domain `io.gozala.address`, producing claims `io.gozala.address/city` and `io.gozala.address/zip`.
-
-### Round-trip
-
-Because query output follows the same three-level structure, the following is valid:
-
-```
-carry query person name="Alice" | carry assert -
-```
-
-Query output for data uses global DIDs at level 1 and global domains at level 2. Definitions queried via `carry query attribute` or `carry query concept` return the same shape and can be piped back in unchanged or edited in between.
+`this` is provided at the command level and determines which entity receives the name. It is not a stored field of the `bookmark` concept. Names are shared across all members of a space and travel with synced data.
