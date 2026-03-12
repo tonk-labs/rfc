@@ -50,7 +50,7 @@ The second key declares how the fields beneath it should be interpreted.
 | Contains `.` | Domain context; fields expand to `domain/field` relation identifiers | `io.gozala.person` |
 | No `.` | Concept context; fields are named attributes of that concept | `attribute`, `concept`, `bookmark` |
 
-The concept names `attribute`, `concept`, `rule`, and `bookmark` are pre-registered. User-defined concept names may appear here once bookmarked.
+The concept names `attribute`, `concept`, `rule`, `premise`, `where`, and `bookmark` are pre-registered. User-defined concept names may appear here once bookmarked.
 
 > ⚠️ Domains starting with `dialog.` are reserved for Dialog DB internals. User-defined domains must not use this prefix.
 
@@ -207,6 +207,66 @@ Produces:
 ```
 
 Names are shared across all members of a space and travel with synced data.
+
+Names are shared across all members of a space and travel with synced data.
+
+#### `rule`
+
+A rule derives new concept instances from existing data. It has three parts: `deduce` names the concept being derived, `when` lists the positive premises that must hold, and `unless` lists premises that must not hold. Both `deduce` and `assert` inside `when`/`unless` reference concepts by bookmark name or inline definition.
+
+```yaml
+meal-plan:
+  concept:
+    description: A planned meal for an occasion
+    with:
+      attendee:
+        description: Person attending the meal
+        the: diy.planner/attendee
+        as: Entity
+        cardinality: one
+      recipe:
+        description: Recipe to be served
+        the: diy.planner/recipe
+        as: Entity
+        cardinality: one
+      occasion:
+        description: The occasion the meal is planned for
+        the: diy.planner/occasion
+        as: Entity
+        cardinality: one
+
+safe-meal:
+  concept:
+    description: A meal plan confirmed safe given the attendee's dietary restrictions
+    with:
+      safe:
+        description: Whether the meal plan is safe for the attendee
+        the: diy.planner/safe
+        as: Boolean
+        cardinality: one
+
+safe-meal-rule:
+  rule:
+    description: A meal plan is safe if there are no dietary conflicts for the attendee and recipe
+    deduce: safe-meal
+    when:
+      - assert: meal-plan
+        where:
+          this:     ?this
+          attendee: ?person
+          recipe:   ?recipe
+      - assert: ==
+        where:
+          this: ?this
+          safe: true
+    unless:
+      - assert: dietary-conflict
+        where:
+          person: ?person
+          recipe: ?recipe
+```
+
+`?this` binds the derived entity to the matched `meal-plan` entity. The `==` built-in constrains `safe` to `true` on that entity. Variables unify by name across all `when` and `unless` clauses.
 
 ### Nested entities
 
@@ -781,3 +841,70 @@ bookmark:
 ```
 
 `this` is provided at the command level and determines which entity receives the name. It is not a stored field of the `bookmark` concept. Names are shared across all members of a space and travel with synced data.
+
+#### `where`
+
+```yaml
+where:
+  concept:
+    description: Variable bindings mapping field names of a matched concept to variables
+    with:
+      ?name:
+        description: A variable bound to the named field of the matched concept
+        the:         dialog.rule/where/?name
+        as:          Symbol
+        cardinality: one
+```
+
+Each key is a field name of the matched concept; each value is a variable (`?foo`) that unifies across the rule.
+
+#### `premise`
+
+```yaml
+premise:
+  concept:
+    description: A pattern to match against existing data
+    with:
+      assert:
+        description: The concept to match
+        the:         dialog.rule/assert
+        as:          concept
+        cardinality: one
+      where:
+        description: Variable bindings for fields of the matched concept
+        the:         dialog.rule/where
+        as:          where
+        cardinality: one
+```
+
+#### `rule`
+
+```yaml
+rule:
+  concept:
+    description: Built-in concept for deriving new concept instances from existing data
+    with:
+      description:
+        description: Human-readable description of what this rule derives
+        the:         dialog.meta/description
+        as:          Text
+        cardinality: one
+      deduce:
+        description: The concept this rule derives instances of
+        the:         dialog.rule/deduce
+        as:          concept
+        cardinality: one
+      when:
+        description: Positive premises; all must hold for the rule to fire
+        the:         dialog.rule/when
+        as:          premise
+        cardinality: many
+    maybe:
+      unless:
+        description: Negative premises; if any hold the rule does not fire
+        the:         dialog.rule/unless
+        as:          premise
+        cardinality: many
+```
+
+`unless` is optional: a rule with no negative premises fires whenever all `when` clauses are satisfied.
